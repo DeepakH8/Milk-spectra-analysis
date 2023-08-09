@@ -1,0 +1,421 @@
+---
+title: "Multivariate_Assignment"
+author: "Divya Halliyavar (22201765)"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE)
+```
+
+```{r}
+#import libraries
+library(cluster)    # clustering algorithms
+library(factoextra)
+library(reshape2)
+library (pls)
+```
+
+**1.Load the data set into R. Use the set.seed function in R to set the seed to your student number.Randomly generate a number between 1 and n (where n is the number of rows in the dataset), and delete that observation/row from the dataset. Ensure that you include the code used in this step in the R code you submit with your assignment so that your work can be reproduced.**
+
+```{r}
+#Loading the dataset
+Milk_Mir_original = read.csv("Milk_MIR_Traits_data_2023.csv")
+Milk_Mir = Milk_Mir_original
+```
+
+```{r}
+#setting seed to student number
+set.seed(22201765)
+```
+
+```{r}
+#Generating random numbers from 1 to n(582)
+n = nrow(Milk_Mir)
+x = sample(1:n, 1)
+cat("The row that needs to be deleted is:",x)
+
+#Deleting 240th observation/row from the dataset
+Milk_Mir <- Milk_Mir[-x,]
+
+```
+
+**2.The milk protein β Lactoglobulin B is used in the production of protein drinks. Remove from the dataset any record/observation which has a missing/NA value for β Lactoglobulin B. Then, visualise the spectra and the protein trait β Lactoglobulin B using (separate) suitable plots. Comment on the plots. Remove any observations with β Lactoglobulin B outside of 3 standard deviations from the mean of the trait.**
+
+```{r}
+#Removing missing values for β Lactoglobulin B
+Milk_Mir <- Milk_Mir[!is.na(Milk_Mir$beta_lactoglobulin_b),]
+#checking for null values for β Lactoglobulin B 
+sum(is.na(Milk_Mir$beta_lactoglobulin_b))
+
+```
+
+```{r}
+#visualisation of spectra
+wavelength <- grep("X", colnames(Milk_Mir), value = TRUE)
+wavelength=as.numeric(gsub("X", "", wavelength))
+MIR_spectra <- t(Milk_Mir[, -c(1:51)])
+wavelength_spectra <- as.numeric(Milk_Mir[1, -c(1:51)])
+matplot(wavelength, MIR_spectra, type = "l", lty = 1, xlab = "Wavenumber(cm^-1)", ylab = "Absorbance")
+
+
+```
+
+
+***Interpretation***
+
+*MIR spectroscopy is an analytical technique widely used for analyzing various food products, including milk. By analyzing the MIR spectra of milk, one can determine the chemical composition and quality of* *the milk. The x-axis of the spectra represents the wavenumber or frequency range, while the y-axis represents the absorbance or transmittance of the milk sample at each wavenumber. The specific wavelengths of the* *absorption bands in the spectra vary depending on the milk's composition, such as its protein and fat content. The MIR spectra of milk exhibit several peaks that correspond to the different chemical components of milk, such as protein, fat, lactose, and minerals. From the graph, we can see that the maximum absorbance value is around the wavelength of 2900 cm\^-1. Analyzing the intensity and position of* *these peaks can help determine the milk's chemical composition and quality.*
+
+*The MIR spectra of milk usually show protein bands in the range of 1700-1600 cm-1 and 1550-1480 cm-1, while lipid bands are typically found between 3000-2800 cm-1 and 1740-1660 cm-1. From the above visualization, we can see that the milk samples has peaks in the 1600-1800 range, which indicate the presence of protein, and strong peaks in the 2800-3000 cm-1 range, indicating high fat content. This pattern is consistent across all milk samples, regardless of the breed they were taken from*
+
+```{r}
+# Load the ggplot2 package
+library(ggplot2)
+
+# Create a scatter plot of Beta.Lactoglobulin.B trait data based on bread
+ggplot(Milk_Mir, aes(x = Breed , y = beta_lactoglobulin_b, col=Breed))+
+  geom_boxplot() +
+  xlab("Breed") +
+  ylab("Beta Lactoglobulin B") +
+  ggtitle("Plot of Beta Lactoglobulin B Trait ")
+```
+
+***Interpretation***
+
+*β-lactoglobulin B is a type of whey protein found in milk, and a higher concentration of this protein can increase the overall amount of whey protein in the milk. This can impact the manufacturing and yield of dairy products like cheese and yogurt, which depend on a balance of casein and whey proteins. The* *presence of β-lactoglobulin B can also impact the functional properties of other milk proteins, including their solubility, stability under heat, and ability to form gels. These properties, in turn, can affect the texture, flavor, and appearance of dairy products during storage and processing. Additionally, β- lactoglobulin is a* *major allergen found in milk, which can have implications for the safety and suitability of dairy products for individuals with milk allergies or intolerances.*
+
+*The above box plot shows From the above box plot β-lactoglobulin B content for different breed.It can be seen that JEX- has high β-lactoglobulin B content in milk which means that it can be used in making energy drink but cannot be used making of cheese, yogurts etc.MO and NR breed has less β-lactoglobulin B which indicates that the milk sample using these breeds can be used in making products like cheese,yogurts etc*
+
+```{r}
+hist(Milk_Mir$beta_lactoglobulin_b, xlab = "β Lactoglobulin B", main = "Histogram of β Lactoglobulin B")
+```
+
+*The plot of β Lactoglobulin B trait will show the distribution of the protein trait values across all observations. From the above plot, we can say that the distribution is right skewed having maximum frequency of about 90 for β Lactoglobulin B of 2-2.5. There are very few records which has β Lactoglobulin B greater than 7 and hence can be ignored for further analysis.*
+
+```{r}
+#Removing any observations with β Lactoglobulin B outside of 3 standard deviations from the mean of the trait
+Milk_Mir <- Milk_Mir[abs(Milk_Mir$beta_lactoglobulin_b - mean(Milk_Mir$beta_lactoglobulin_b)) < 3*sd(Milk_Mir$beta_lactoglobulin_b),]
+
+```
+
+**3.Use hierarchical clustering and k-means clustering to determine if there are clusters of similar MIR spectra in the data. Motivate any decisions you make. Compare the hierarchical clustering and k-means clustering solutions. Comment on/explore any clustering structure you uncover, considering the data generating context.**
+
+```{r}
+MIR_spectra_data=Milk_Mir[,-c(1:51)]
+St_Dev = apply(MIR_spectra_data, 2, sd)
+
+MIR_spectra_SD = sweep(MIR_spectra_data, 2, St_Dev, "/")
+```
+
+```{r}
+#elbow method for finding best value of K
+WGSS = rep(0,10)
+n = nrow(MIR_spectra_data)
+WGSS[1] = (n-1) * sum(apply(MIR_spectra_data, 2, var))
+
+for(k in 2:10)
+{
+WGSS[k] = sum(kmeans(MIR_spectra_data, centers = k)$withinss)
+}
+
+#Elbow method
+plot(1:10, WGSS, type="b", xlab="k", ylab="Within group sum of squares",main ="Elbow method to find best k")
+```
+
+*From the above elbow method, we can choose K value as 2,3 and 4*
+
+```{r}
+#using Silhouette method to find best value of k
+fviz_nbclust(MIR_spectra_data, kmeans, method = "silhouette")
+```
+
+*From silhouette method, k = 2*
+
+Hierarchical Clustering
+
+```{r}
+
+hclust_complete= hclust(dist(MIR_spectra_SD), method="complete")
+hclust_average= hclust(dist(MIR_spectra_SD), method="average")
+
+plot(hclust_average, xlab="Average linkage", sub="")
+plot(hclust_complete, xlab="Complete linkage", sub="")
+```
+
+```{r}
+hcl = cutree(hclust_complete, k = 4)
+table(hcl)
+```
+
+Kmeans clustering
+
+```{r}
+cl = kmeans(MIR_spectra_data, center=4)
+table(cl$cluster)
+```
+
+```{r}
+#Visualization of clusters
+fviz_cluster(cl, data = MIR_spectra_data)
+```
+
+```{r}
+#Comparing two clustreing method
+tab = table(hcl, cl$cluster)
+tab
+
+library(e1071)
+classAgreement(tab)
+```
+
+***Interpretation***
+
+*In this analysis, hierarchical clustering and k-means clustering were applied to identify clusters of similar* *MIR spectra in the data. The number of clusters was selected using the elbow and silhouette methods, and K = 4 was chosen based on the maximum crand index. Complete linkage was used for hierarchical* *clustering as it can produce compact, spherical clusters and is less sensitive to outliers. The scatter plot showed that there were 4 distinct milk samples, suggesting differences in their chemical compositions or* *functional groups. The crand index was used to evaluate the performance and stability of the clustering solutions, with a higher value indicating better* *similarity between the two methods.*
+
+**4.Apply principal components analysis to the spectral data, motivating any decisions you make in the process. Plot the cumulative proportion of the variance explained by the first 10 principal components. How many principal components do you think are required to represent the spectral data? Explain your answer.**
+
+```{r}
+#Applying principle component to the spectral data
+fit_PC = prcomp(MIR_spectra_SD)
+
+#converting to dataframe
+fit_PC_df =as.data.frame(summary(fit_PC)[6])
+
+#displaying cumulative proportion of the variance explained by the first 10 principal components.
+First_10_PC = fit_PC_df[,1:10]
+names(First_10_PC) <- c("PC1", "PC2", "Pc3", "PC4","PC5","PC6","PC7","PC8","PC9","PC10")
+First_10_PC
+
+```
+
+```{r}
+#plotting cumulative proportion of variance explained by first 10 components
+Prop_variance <- First_10_PC[3,]
+
+df_melt <- melt(Prop_variance)
+
+pplot <- ggplot(df_melt,aes(x=variable,y=value,label=paste0(100*value,'%')))+
+  geom_bar(stat='identity',color='black',fill='pink')+
+  geom_text(position=position_dodge(width=0.9), vjust=-0.25,size=3.5)+
+  xlab('Principal Component')+ylab('cumulative proportion of variance')
+
+pplot
+```
+
+***Interpretation***
+
+*PCA is a statistical method that is used to identify the main factors that are responsible for the variation in* *a dataset. The aim is to reduce the number of variables while preserving as much information as possible. In this context, the PCA analysis has been performed on a dataset with at least 10 principal* *components. The standard deviation of each principal component is given, and the highest value is associated with the* *first principal component. This indicates that the first principal component is responsible for a greater part of the variation in the data compared to the others. The proportion of variance explained by each principal component is also given, with PC1 explaining the most variance. Finally, the cumulative* *proportion of variance explained by each principal component is given. Based on this information, it is suggested that the first three or first four principal components may be sufficient to represent the spectral data.* *Including more components may not provide much additional information.*
+
+**5.Derive the principal component scores for the milk samples from first principles (i.e., you should not use an inbuilt function such as predict(. . . )). Plot the principal component scores for the milk samples. Comment on any structure you observe.**
+
+```{r}
+#Deriving the principle component scores for the milk samples from first principles.
+rotation=as.matrix(fit_PC$rotation[,1:6])
+scores <- as.matrix(MIR_spectra_SD) %*% rotation
+mean_value = apply(scores, 2, mean)
+score_mean = sweep(scores, 2, mean_value, "-")
+plot(score_mean[,c(1,2)],col = c("brown", "blue"),xlim = c(-20,20),ylim = c(-20,20) )
+plot(score_mean[,c(2,3)],col = c("brown", "blue"),xlim = c(-20,20),ylim = c(-20,20) )
+plot(score_mean[,c(3,4)],col = c("brown", "blue"),xlim = c(-20,20),ylim = c(-20,20) )
+```
+
+**Interpretation**
+
+*The resulting scatter plots provide a visual representation of the milk samples in a reduced principal component space. The first plots reveal the presence of two distinct clusters of milk samples. One cluster is represented by blue dots and is characterized by high values of the first principal component* *and low values of the second principal component. The other cluster is represented by brown dots and is characterized by low values of the first principal component and high values of the second principal* *component. The second and third plot does not show any clear separation between the milk samples along the second and third, third and fourth principal component axes respectively. Overall, these scatter plots suggest that the first principal components capture the primary variation in the data and that there may be some underlying structure or grouping among the milk samples based on their MIR spectra.*
+
+**6.Interest lies in predicting the β Lactoglobulin B trait based on the MIR spectra. Principal components regression (PCR) is one approach to doing so for such n \< p data. Research the principal components regression method and how it works e.g., see An Introduction to Statistical Learning with Applications in R by James et al. (2021), The Elements of Statistical Learning by Hastie et al. (2017), and/or the peer-reviewed journal article The pls Package: Principal Component and Partial Least Squares Regression in R by Mevik and Wehrens (2007). In your own words, write a maximum 1 page synopsis of the PCR method. Your synopsis should (i) explain the method's purpose, (ii) provide a general description of how the method works, (iii) detail any choices that need to be made when using the method and (iv) outline the advantages and disadvantages of the method.**
+
+***PCR Synopsis***
+
+**(i)PCR purpose**
+
+*Principal Component Regression (PCR) is a statistical method that aims to examine and model the relationships between a set of predictors and a response variable. It is a type of multiple regression analysis that utilizes principal component analysis (PCA) to decrease the number of predictor variables* *and prevent multicollinearity problems.The basic principle of PCR is to create a smaller set of independent variables that explain most of the variability in the original set of predictors. The first* *principal component captures the largest amount of variability in the data, the second principal component captures the next largest amount of variability, and so on. These principal components are then used as predictors in the regression model instead of the original variables.*
+
+**To perform PCR, there are several steps involved:**
+
+1.  *The predictor variables are standardized to have zero mean and unit variance.*
+2.  *A principal component analysis is performed on the standardized predictor variables to obtain the principal components (PCs).*
+3.  *A subset of the PCs is selected based on the amount of variation they explain in the original data.*
+4.  *The selected PCs are utilized as predictor variables in a linear regression model to predict the response variable.*
+
+**When using Principal Component Regression (PCR), there are several decisions that must be made, such as:**
+
+1.  *Predictor selection: In the initial step of PCR, predictors must be chosen to create principal components. This step can be subjective and may depend on the researcher's knowledge of the field, available data, and research objectives.*
+
+2.  *Number of principal components: The number of principal components included in the regression model is another decision that needs to be made. This can be determined by using cross-validation or by examining the scree plot, which displays the amount of variance explained by each principal component.*
+
+3.  *Scaling of variables: PCR assumes that predictors are scaled to have a mean of 0 and a standard deviation of 1. However, depending on the data's nature, alternative scaling methods may be more appropriate.*
+
+4.  *Type of regression model: The principal components created can be used as predictors in a regression model. The regression model type used depends on the research question and data type, and may involve linear regression, logistic regression, or other regression models.*
+
+5.  *Model validation: Finally, the model must be validated to ensure that it provides a good fit to the data and that the model's assumptions are met. This may involve techniques like cross-validation or reviewing the model's residuals.*
+
+**Advantages:**
+
+1.  *It can reduce the dimensionality of data by combining correlated variables into principal components, which simplifies the model, reduces the risk of overfitting, and handles multicollinearity issues.*
+
+2.  *It can improve the performance of a regression model by reducing noise in the data and stabilizing regression coefficients.*
+
+3.  *It is useful for datasets with a large number of predictors.*
+
+**Disadvantages:**
+
+1.  *It can lead to a loss of interpretability because the original predictors are combined into principal components that may not have a direct relationship with the original variables.*
+
+2.  *The choice of the number of principal components can be subjective and may affect the model's performance.*
+
+3.  *There is a risk of overfitting if too many principal components are used in the model.*
+
+4.  *PCR is sensitive to outliers in the data, which can negatively impact model performance.*
+
+**7. Use the function pcr in the pls R package to use PCR to predict the β Lactoglobulin B levels from the spectra for a test set, where the test set is one third of the data. Motivate any decisions you make.**
+
+```{r}
+pcr_data=data.frame(Milk_Mir[,"beta_lactoglobulin_b"],Milk_Mir[,-c(1:51)])
+colnames(pcr_data)[1]="beta_lactoglobulin_b"
+N_size <- floor(nrow(pcr_data)*0.66)+1
+val_N <- floor(nrow(pcr_data)*0.33)+1
+train_index=sample(1:nrow(pcr_data), size = N_size)
+test_index = setdiff(1:nrow(pcr_data), train_index)
+pcr_fit <- pcr (beta_lactoglobulin_b ~., data = pcr_data , subset = train_index ,
+scale = TRUE ,  ncomp = 100,  validation = "CV")
+validationplot (pcr_fit , val.type = "MSEP")
+```
+
+```{r}
+pcr_pred <- predict (pcr_fit , pcr_data[test_index , -c(1)], ncomp =43 )
+mean ((pcr_pred -pcr_data[test_index ,1] )^2)
+```
+
+**Interpretation**
+
+*To predict beta lactoglobulin levels, the model was trained using 66% of the available data, and the remaining 33% was used for validation. The training dataset was used to fit the model, and a validation plot was generated with 100 components. The plot showed that the lowest RMSE value was achieved with 43 principal components. The model was then tested with the test data, and the predicted results were compared with the actual results. The mean squared error obtained from this comparison was 2.31.*
+
+**8.Seven milk proteins, one of which is β Lactoglobulin B, are important for the production of cheese and whey (see invited lecture slides). Here, for some records/observations the β Lactoglobulin B values are exactly 0, while there are non-zero values for the other milk proteins for the same records. Often records with such strange measurements are deleted, arguably losing information. Here, rather than delete these observations, the β Lactoglobulin B values of 0 could be treated as 'missing at random'. Often such missing values are imputed using e.g., the mean of the observed β Lactoglobulin B values. In the multivariate setting, matrix completion methods can be used to impute such missing at random values. (Note that matrix completion approaches are often used to power recommender systems such as Netflix.) One matrix completion method uses principal components analysis as detailed in section 12.3 in An Introduction to Statistical Learning with Applications in R by James et al. (2021). Read this section to understand how the method works. Write your own code to impute the β Lactoglobulin B values that are 0 using principal components analysis on the seven milk proteins data. You must use the function prcomp or eigen in your solution. Comment on the results you obtain.**
+
+```{r}
+#Splitting the milk protein data
+protein_traits =Milk_Mir[,7:13]
+protein_std= apply(protein_traits, 2, sd)
+protein_traits_std = sweep(protein_traits, 2, protein_std, "/")
+
+dim_red=prcomp(protein_traits_std)
+summary(dim_red)
+
+#Validation plot using CV
+pcr_fit_x <- pcr (beta_lactoglobulin_b ~., data = protein_traits_std ,validation = "CV")
+validationplot (pcr_fit_x , val.type = "RMSE")
+
+#Using matrix completion algorithm to fill the missing values.
+ fit_prc <- function(X, M) {
+   svdob <- prcomp (X)
+   with (svdob ,(svdob$x))
+}
+
+
+protein_traits_std[protein_traits_std == 0] <- NA
+Xhat <- protein_traits_std
+xbar <- colMeans (protein_traits_std , na.rm = TRUE)
+Xhat[is.na(Xhat)] <- xbar[7]
+
+
+threshold <- 1e-7
+relerr <- 1
+iter <- 0
+ismissing <- is.na(protein_traits_std)
+mss_old <- mean (( scale (protein_traits_std , xbar , FALSE)[!ismissing])^2)
+mss0 <- mean (protein_traits_std[!ismissing]^2)
+
+while (relerr > threshold) {
+iter <- iter + 1
+Xapp <- fit_prc (Xhat , M = 6)
+Xhat[ismissing] <- Xapp[ismissing]
+mss <- mean (((protein_traits_std - Xapp)[!ismissing])^2)
+relerr <- (mss_old - mss) / mss0
+mss_old <- mss
+cat (" Iter :", iter , " MSS :", mss ,
+ " Rel Err :", abs(relerr) , "\n")
+ }
+
+```
+**Interpretation**
+
+*The plot suggests that the mean squared error is minimized with 6 principal components, but there is only a slight decrease in RMSE value from 4 to 6 components. This implies that 4 principal components capture the majority of the variance in the data. However, it is still reasonable to consider 6 components, as they explain some additional variance. But including more components than 6 may cause the model to overfit.*
+
+**9\. Using PCR, predict the β Lactoglobulin B values from the MIR spectra for a test set where the training set contains:**
+
+**(a) all records with an observed, non-zero value of β Lactoglobulin B.**
+
+**(b) all records but where 0 values of β Lactoglobulin B are imputed using the observed mean.**
+
+**(c) all records but where 0 values of β Lactoglobulin B values are imputed using principal components analysis. Comment on what you observe.**
+
+*(a) all records with an observed, non-zero value of β Lactoglobulin B.*
+
+```{r}
+#Splitting the data into testing and training dataset
+mir_data_train=data.frame(beta_lactoglobulin_b=Milk_Mir[train_index,"beta_lactoglobulin_b"],Milk_Mir[train_index,-c(1:51)])
+
+mir_data_test=data.frame(beta_lactoglobulin_b=Milk_Mir[test_index,"beta_lactoglobulin_b"],Milk_Mir[test_index,-c(1:51)])
+
+
+x_test=mir_data_test[,-c(1)]
+y_test=mir_data_test[,1]
+
+#Fitting the model with missing values and predicting the data and calculating mean squared error
+pcr_fit<- pcr(beta_lactoglobulin_b ~., data = mir_data_train  ,
+scale = TRUE )
+
+pcr_predict <- predict (pcr_fit , x_test, ncomp =43 )
+mean ((pcr_predict -y_test )^2)
+```
+
+*(b) all records but where 0 values of β Lactoglobulin B are imputed using the observed mean.*
+
+```{r}
+#Fitting the model by replacing missing values with mean value
+
+y_mean=Milk_Mir$beta_lactoglobulin_b
+mean_value <- mean (y_mean )
+y_mean[y_mean == 0] <- mean_value
+
+Milk_Mir_train_mean=data.frame(beta_lactoglobulin_b=y_mean[train_index],Milk_Mir[train_index,-c(1:51)])
+Milk_Mir_test_mean=data.frame(beta_lactoglobulin_b=y_mean[test_index],Milk_Mir[test_index,-c(1:51)])
+
+x_test=Milk_Mir_test_mean[,-c(1)]
+y_test=Milk_Mir_test_mean[,1]
+
+#predicting the data and calculating mean squared error
+pcr_fit1<- pcr (beta_lactoglobulin_b ~., data = Milk_Mir_train_mean  ,
+scale = TRUE )
+
+pcr_predict1 <- predict (pcr_fit1 , x_test, ncomp =43 )
+mean ((pcr_predict1 -y_test )^2)
+```
+
+*(c) all records but where 0 values of β Lactoglobulin B values are imputed using principal components analysis.*
+
+```{r}
+#Fitting the model by replacing missing values with imputed value using matrix completion method
+y_value=Xhat$beta_lactoglobulin_b
+
+Milk_Mir_train_pca=data.frame(beta_lactoglobulin_b=y_value[train_index],Milk_Mir[train_index,-c(1:51)])
+Milk_Mir_test_pca=data.frame(beta_lactoglobulin_b=y_value[test_index],Milk_Mir[test_index,-c(1:51)])
+
+x_test=Milk_Mir_test_pca[,-c(1)]
+y_test=Milk_Mir_test_pca[,1]
+
+#predicting the data and calculating mean squared error
+pcr_fit2<- pcr (beta_lactoglobulin_b ~., data = Milk_Mir_train_pca  ,
+scale = TRUE )
+
+pcr_predict2 <- predict (pcr_fit2 , x_test, ncomp =43 )
+mean ((pcr_predict2 -y_test )^2)
+```
+
+
+
+
